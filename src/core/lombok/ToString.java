@@ -87,7 +87,12 @@ public @interface ToString {
 	 * @return If {@code true}, don't include non-static fields automatically (default: {@code false}).
 	 */
 	boolean onlyExplicitlyIncluded() default false;
-	
+
+	/**
+	 * 是否过滤字段值为null的字符串，默认不过滤
+	 */
+	boolean filterNull() default false;
+
 	/**
 	 * If present, do not include this field in the generated {@code toString}.
 	 */

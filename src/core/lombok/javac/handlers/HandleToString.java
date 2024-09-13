@@ -78,8 +78,9 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		FieldAccess fieldAccess = doNotUseGetters ? FieldAccess.PREFER_FIELD : FieldAccess.GETTER;
 		
 		boolean includeFieldNames = annotationNode.getAst().getBooleanAnnotationValue(annotation, "includeFieldNames", ConfigurationKeys.TO_STRING_INCLUDE_FIELD_NAMES);
-		
-		generateToString(annotationNode.up(), annotationNode, members, includeFieldNames, callSuper, true, fieldAccess);
+		// filterNull 默认值写死了，false 默认使用lombok原生的toString
+		boolean filterNull = typeNode.getAst().getBooleanAnnotationValue(anno, "filterNull", false);
+		generateToString(annotationNode.up(), annotationNode, members, includeFieldNames, callSuper, true, fieldAccess, filterNull);
 	}
 	
 	public void generateToStringForType(JavacNode typeNode, JavacNode errorNode) {
@@ -91,17 +92,20 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		AnnotationValues<ToString> anno = AnnotationValues.of(ToString.class);
 		boolean includeFieldNames = typeNode.getAst().getBooleanAnnotationValue(anno, "includeFieldNames", ConfigurationKeys.TO_STRING_INCLUDE_FIELD_NAMES);
 		boolean onlyExplicitlyIncluded = typeNode.getAst().getBooleanAnnotationValue(anno, "onlyExplicitlyIncluded", ConfigurationKeys.TO_STRING_ONLY_EXPLICITLY_INCLUDED);
-		
+		// filterNull 默认值写死了，false 默认使用lombok原生的toString
+		boolean filterNull = typeNode.getAst().getBooleanAnnotationValue(anno, "filterNull", false);
+
+
 		Boolean doNotUseGettersConfiguration = typeNode.getAst().readConfiguration(ConfigurationKeys.TO_STRING_DO_NOT_USE_GETTERS);
 		FieldAccess access = doNotUseGettersConfiguration == null || !doNotUseGettersConfiguration ? FieldAccess.GETTER : FieldAccess.PREFER_FIELD;
 		
 		java.util.List<Included<JavacNode, ToString.Include>> members = InclusionExclusionUtils.handleToStringMarking(typeNode, onlyExplicitlyIncluded, null, null);
-		generateToString(typeNode, errorNode, members, includeFieldNames, null, false, access);
+		generateToString(typeNode, errorNode, members, includeFieldNames, null, false, access, filterNull);
 	}
 	
 	public void generateToString(JavacNode typeNode, JavacNode source, java.util.List<Included<JavacNode, ToString.Include>> members,
-		boolean includeFieldNames, Boolean callSuper, boolean whineIfExists, FieldAccess fieldAccess) {
-		
+		boolean includeFieldNames, Boolean callSuper, boolean whineIfExists, FieldAccess fieldAccess, boolean filterNull) {
+
 		if (!isClassOrEnum(typeNode)) {
 			source.addError("@ToString is only supported on a class or enum.");
 			return;
@@ -130,7 +134,13 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 					}
 				}
 			}
-			JCMethodDecl method = createToString(typeNode, members, includeFieldNames, callSuper, fieldAccess, source);
+			JCMethodDecl method;
+			if (!typeNode.isEnumType() && filterNull) {
+				method = createToStringV2(typeNode, members, includeFieldNames, callSuper, fieldAccess, source);
+			} else {
+				method = createToString(typeNode, members, includeFieldNames, callSuper, fieldAccess, source);
+			}
+
 			injectMethod(typeNode, method);
 			break;
 		case EXISTS_BY_LOMBOK:
@@ -155,23 +165,18 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		if (getCheckerFrameworkVersion(typeNode).generateSideEffectFree()) annsOnMethod = annsOnMethod.prepend(maker.Annotation(genTypeRef(typeNode, CheckerFrameworkVersion.NAME__SIDE_EFFECT_FREE), List.<JCExpression>nil()));
 		JCModifiers mods = maker.Modifiers(Flags.PUBLIC, annsOnMethod);
 		JCExpression returnType = genJavaLangTypeRef(typeNode, "String");
-		
+
 		boolean first = true;
 		
 		String typeName = getTypeName(typeNode);
 		boolean isEnum = typeNode.isEnumType();
 
-		/**
-		 *  原生: return "NotifyTrade1(super=" + super.toString() + ", store_id=" + this.getStore_id() + ")";
-		 *  新的: return "NotifyTrade1(" + super.toString() + ", store_id=" + this.getStore_id() + ")";
-		 *  v2.0:
-		 */
 		String infix = ", ";
 		String suffix = ")";
 		String prefix;
 		if (callSuper) {
 			// 调用父类的toString, 不要字符串super
-			prefix = "(";
+			prefix = "(super=";
 		} else if (members.isEmpty()) {
 			prefix = isEnum ? "" : "()";
 		} else if (includeNames) {
@@ -267,6 +272,133 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		// 创建一个方法定义，包括修饰符、方法名、返回类型、参数类型列表、参数列表、方法体、默认值
 		JCMethodDecl methodDef = maker.MethodDef(mods, typeNode.toName("toString"), returnType,
 			List.<JCTypeParameter>nil(), List.<JCVariableDecl>nil(), List.<JCExpression>nil(), body, null);
+		createRelevantNonNullAnnotation(typeNode, methodDef);
+		return recursiveSetGeneratedBy(methodDef, source);
+	}
+
+	/**
+	 * 自定义 toString 方法， 生成的字符串会将字段值为null的值进行过滤
+	 * 前面需要添加判断： 不是枚举类型 且 fieldNull = true  逻辑中直接省去了对枚举类型的判断
+	 * @param typeNode
+	 * @param members
+	 * @param includeNames
+	 * @param callSuper
+	 * @param fieldAccess
+	 * @param source
+	 * @return
+	 */
+	static JCMethodDecl createToStringV2(JavacNode typeNode, Collection<Included<JavacNode, ToString.Include>> members,
+									   boolean includeNames, boolean callSuper, FieldAccess fieldAccess, JavacNode source) {
+		/**
+		 *  原生: return "NotifyTrade1(super=" + super.toString() + ", store_id=" + this.getStore_id() + ")";
+		 *  新的: 过滤了字段值为 null 属性
+		 *  新的: return "{super.toString(),store_id=this.getStore_id(),}"
+		 */
+		JavacTreeMaker maker = typeNode.getTreeMaker();
+
+		// 添加 Override 注解 和 public 修饰符; 根据 Checker Framework 的设置（如果需要），可能添加 @SideEffectFree 注解
+		JCAnnotation overrideAnnotation = maker.Annotation(genJavaLangTypeRef(typeNode, "Override"), List.<JCExpression>nil());
+		List<JCAnnotation> annsOnMethod = List.of(overrideAnnotation);
+		if (getCheckerFrameworkVersion(typeNode).generateSideEffectFree()) annsOnMethod = annsOnMethod.prepend(maker.Annotation(genTypeRef(typeNode, CheckerFrameworkVersion.NAME__SIDE_EFFECT_FREE), List.<JCExpression>nil()));
+		JCModifiers mods = maker.Modifiers(Flags.PUBLIC, annsOnMethod);
+		JCExpression returnType = genJavaLangTypeRef(typeNode, "String");
+
+		String typeName = getTypeName(typeNode);
+		boolean isEnum = typeNode.isEnumType();
+
+		// 创建 StringBuilder 实例
+		JCExpression stringBuilderConstructor = maker.NewClass(null, List.<JCTypeParameter>nil(), genJavaLangTypeRef(typeNode, "StringBuilder"), List.<JCExpression>nil(), null);
+		JCVariableDecl sbDecl = maker.VarDef(maker.Modifiers(0), typeNode.toName("sb"), genJavaLangTypeRef(typeNode, "StringBuilder"), stringBuilderConstructor);
+		// 创建方法体
+		List<JCStatement> statements = new ArrayList<>();
+		statements.add(sbDecl);
+
+
+		String infix = ", ";
+		String suffix = "}";
+		String prefix;
+
+		// 前缀
+		if (members.isEmpty()) {
+			prefix = "{}";
+		} else if (includeNames) {
+			Included<JavacNode, ToString.Include> firstMember = members.iterator().next();
+			String name = firstMember.getInc() == null ? "" : firstMember.getInc().name();
+			if (name.isEmpty()) name = firstMember.getNode().getName();
+			prefix = "{" + name + "=";
+		} else {
+			prefix = "{";
+		}
+		// sb.append("{");
+		maker.Exec(maker.Apply(List.<JCExpression>nil(),
+				maker.Select(maker.Ident(typeNode.toName("sb")), typeNode.toName("append")),
+				List.of(maker.Literal(prefix)));
+
+		// sb.append(super.tostring());
+		if (callSuper) {
+			maker.Exec(maker.Apply(List.<JCExpression>nil(),
+							maker.Select(maker.Ident(typeNode.toName("sb")), typeNode.toName("append")),
+							List.of(maker.Literal(maker.Ident(typeNode.toName("super")), typeNode.toName("toString") + infix), List.<JCExpression>nil())));
+		}
+
+
+		for (Included<JavacNode, ToString.Include> member : members) {
+			JCExpression expr;
+
+			JCExpression memberAccessor;
+			JavacNode memberNode = member.getNode();
+			if (memberNode.getKind() == Kind.METHOD) {
+				// 生成对方法的调用表达式
+				memberAccessor = createMethodAccessor(maker, memberNode);
+			} else {
+				// 生成对属性的访问表达式
+				memberAccessor = createFieldAccessor(maker, memberNode, fieldAccess);
+			}
+
+			// 获取字段的类型信息并移除注解: 编译后的代码无须注解
+			JCExpression memberType = removeTypeUseAnnotations(getFieldType(memberNode, fieldAccess));
+
+			// The distinction between primitive and object will be useful if we ever add a 'hideNulls' option.
+			@SuppressWarnings("unused")
+			// 检查 memberType 是否为基本类型（JCPrimitiveTypeTree）
+			boolean fieldIsPrimitive = memberType instanceof JCPrimitiveTypeTree;
+			// 检查 memberType 是否为基本类型数组（JCArrayTypeTree），且其元素类型为基本类型（JCPrimitiveTypeTree）
+			boolean fieldIsPrimitiveArray = memberType instanceof JCArrayTypeTree && ((JCArrayTypeTree) memberType).elemtype instanceof JCPrimitiveTypeTree;
+			// 检查 memberType 是否为对象数组（JCArrayTypeTree），且不是基本类型数组
+			boolean fieldIsObjectArray = !fieldIsPrimitiveArray && memberType instanceof JCArrayTypeTree;
+
+			// 生成表达式: 数组则单独toString方法，否则直接使用表达式
+			if (fieldIsPrimitiveArray || fieldIsObjectArray) {
+				JCExpression tsMethod = chainDots(typeNode, "java", "util", "Arrays", fieldIsObjectArray ? "deepToString" : "toString");
+				expr = maker.Apply(List.<JCExpression>nil(), tsMethod, List.<JCExpression>of(memberAccessor));
+			} else expr = memberAccessor;
+
+			// 添加字段值为 null 的判断 if(getField != null) sb.append(getField)
+			JCExpression nullCheck = maker.Binary(CTC_EQ, expr, maker.Literal(null));
+			JCExpression valueOrNull = maker.Conditional(nullCheck, maker.Literal("null"), expr);
+			JCExpression fieldNotNullCondition = maker.Binary(CTC_NE, expr, maker.Literal(null));
+			JCStatement appendStatement = maker.Exec(maker.Apply(List.<JCExpression>nil(),
+					maker.Select(maker.Ident(typeNode.toName("sb")), typeNode.toName("append")),
+					List.of(maker.Literal(includeNames ? (first ? "" : infix) + memberNode.getName() + "=" : (first ? "" : infix)), valueOrNull))
+			);
+			JCStatement ifStatement = maker.If(fieldNotNullCondition, maker.Block(0, List.of(appendStatement)));
+
+		}
+		// sb.append("{");
+		maker.Exec(maker.Apply(List.<JCExpression>nil(),
+				maker.Select(maker.Ident(typeNode.toName("sb")), typeNode.toName("append")),
+				List.of(maker.Literal(suffix)));
+
+		// 使用 maker.Return(current) 创建一个返回语句，返回 sb.toString()
+		JCStatement returnStatement = maker.Return(maker.Apply(List.<JCExpression>nil(),
+				maker.Select(maker.Ident(typeNode.toName("sb")), typeNode.toName("toString")), List.<JCExpression>nil()));
+
+		// 创建一个代码块（方法体），包含 returnStatement 作为唯一的语句
+		JCBlock body = maker.Block(0, List.of(returnStatement));
+
+		// 创建一个方法定义，包括修饰符、方法名、返回类型、参数类型列表、参数列表、方法体、默认值
+		JCMethodDecl methodDef = maker.MethodDef(mods, typeNode.toName("toString"), returnType,
+				List.<JCTypeParameter>nil(), List.<JCVariableDecl>nil(), List.<JCExpression>nil(), body, null);
 		createRelevantNonNullAnnotation(typeNode, methodDef);
 		return recursiveSetGeneratedBy(methodDef, source);
 	}
