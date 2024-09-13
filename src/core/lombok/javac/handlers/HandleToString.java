@@ -148,7 +148,8 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		boolean includeNames, boolean callSuper, FieldAccess fieldAccess, JavacNode source) {
 		
 		JavacTreeMaker maker = typeNode.getTreeMaker();
-		
+
+		// 添加 Override 注解 和 public 修饰符; 根据 Checker Framework 的设置（如果需要），可能添加 @SideEffectFree 注解
 		JCAnnotation overrideAnnotation = maker.Annotation(genJavaLangTypeRef(typeNode, "Override"), List.<JCExpression>nil());
 		List<JCAnnotation> annsOnMethod = List.of(overrideAnnotation);
 		if (getCheckerFrameworkVersion(typeNode).generateSideEffectFree()) annsOnMethod = annsOnMethod.prepend(maker.Annotation(genTypeRef(typeNode, CheckerFrameworkVersion.NAME__SIDE_EFFECT_FREE), List.<JCExpression>nil()));
@@ -159,12 +160,18 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		
 		String typeName = getTypeName(typeNode);
 		boolean isEnum = typeNode.isEnumType();
-		
+
+		/**
+		 *  原生: return "NotifyTrade1(super=" + super.toString() + ", store_id=" + this.getStore_id() + ")";
+		 *  新的: return "NotifyTrade1(" + super.toString() + ", store_id=" + this.getStore_id() + ")";
+		 *  v2.0:
+		 */
 		String infix = ", ";
 		String suffix = ")";
 		String prefix;
 		if (callSuper) {
-			prefix = "(super=";
+			// 调用父类的toString, 不要字符串super
+			prefix = "(";
 		} else if (members.isEmpty()) {
 			prefix = isEnum ? "" : "()";
 		} else if (includeNames) {
@@ -177,7 +184,8 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		}
 		
 		JCExpression current;
-		if (!isEnum) { 
+		if (!isEnum) {
+			// 创建一个表示字符串 typeName 加上 prefix 的字面量表达式: "NotifyTrade1("
 			current = maker.Literal(typeName + prefix);
 		} else {
 			current = maker.Binary(CTC_PLUS, maker.Literal(typeName + "."), maker.Apply(List.<JCExpression>nil(),
@@ -191,6 +199,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 			JCMethodInvocation callToSuper = maker.Apply(List.<JCExpression>nil(),
 				maker.Select(maker.Ident(typeNode.toName("super")), typeNode.toName("toString")),
 				List.<JCExpression>nil());
+			// 拼接父类的 toString方法: "NotifyTrade1(" + super.tostring()
 			current = maker.Binary(CTC_PLUS, current, callToSuper);
 			first = false;
 		}
@@ -201,19 +210,26 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 			JCExpression memberAccessor;
 			JavacNode memberNode = member.getNode();
 			if (memberNode.getKind() == Kind.METHOD) {
+				// 生成对方法的调用表达式
 				memberAccessor = createMethodAccessor(maker, memberNode);
 			} else {
+				// 生成对属性的访问表达式
 				memberAccessor = createFieldAccessor(maker, memberNode, fieldAccess);
 			}
-			
+
+			// 获取字段的类型信息并移除注解: 编译后的代码无须注解
 			JCExpression memberType = removeTypeUseAnnotations(getFieldType(memberNode, fieldAccess));
 			
 			// The distinction between primitive and object will be useful if we ever add a 'hideNulls' option.
 			@SuppressWarnings("unused")
+			// 检查 memberType 是否为基本类型（JCPrimitiveTypeTree）
 			boolean fieldIsPrimitive = memberType instanceof JCPrimitiveTypeTree;
+			// 检查 memberType 是否为基本类型数组（JCArrayTypeTree），且其元素类型为基本类型（JCPrimitiveTypeTree）
 			boolean fieldIsPrimitiveArray = memberType instanceof JCArrayTypeTree && ((JCArrayTypeTree) memberType).elemtype instanceof JCPrimitiveTypeTree;
+			// 检查 memberType 是否为对象数组（JCArrayTypeTree），且不是基本类型数组
 			boolean fieldIsObjectArray = !fieldIsPrimitiveArray && memberType instanceof JCArrayTypeTree;
-			
+
+			// 生成表达式: 数组则单独toString方法，否则直接使用表达式
 			if (fieldIsPrimitiveArray || fieldIsObjectArray) {
 				JCExpression tsMethod = chainDots(typeNode, "java", "util", "Arrays", fieldIsObjectArray ? "deepToString" : "toString");
 				expr = maker.Apply(List.<JCExpression>nil(), tsMethod, List.<JCExpression>of(memberAccessor));
@@ -228,20 +244,27 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 			if (includeNames) {
 				String n = member.getInc() == null ? "" : member.getInc().name();
 				if (n.isEmpty()) n = memberNode.getName();
+				// 创建一个包含分隔符、名称和等号的字面量 "NotifyTrade1(" + super.toString() + ", store_id="
 				current = maker.Binary(CTC_PLUS, current, maker.Literal(infix + n + "="));
 			} else {
+				// 只添加分割符
 				current = maker.Binary(CTC_PLUS, current, maker.Literal(infix));
 			}
-			
+
+			// 将 expr 连接到 current 表达式, expr是表达式或者toString方法
 			current = maker.Binary(CTC_PLUS, current, expr);
 		}
-		
+
+		// 结尾的 ")" 拼接到 current
 		if (!first) current = maker.Binary(CTC_PLUS, current, maker.Literal(suffix));
-		
+
+		// 使用 maker.Return(current) 创建一个返回语句，返回 current 表达式的值
 		JCStatement returnStatement = maker.Return(current);
-		
+
+		// 创建一个代码块（方法体），包含 returnStatement 作为唯一的语句
 		JCBlock body = maker.Block(0, List.of(returnStatement));
-		
+
+		// 创建一个方法定义，包括修饰符、方法名、返回类型、参数类型列表、参数列表、方法体、默认值
 		JCMethodDecl methodDef = maker.MethodDef(mods, typeNode.toName("toString"), returnType,
 			List.<JCTypeParameter>nil(), List.<JCVariableDecl>nil(), List.<JCExpression>nil(), body, null);
 		createRelevantNonNullAnnotation(typeNode, methodDef);
