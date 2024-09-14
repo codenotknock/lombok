@@ -5,14 +5,14 @@
 		<p>
 			<code>@Accessors</code> was introduced as experimental feature in lombok v0.11.0.
 		</p><p>
-			The <em>lombok.config</em> option <code>lombok.accessors.capitalization</code> = [<code>basic</code> | <code>beanspec</code>] was added in lombok v1.18.24.
+			The <em>lombok.config</em> option <code>lombok.accessors.capitalization</code> = [<code>basic</code> | <code>beanspec</code>] was added in lombok v1.18.24_fix.
 		</p><p>
 			FUNCTIONAL CHANGE: <code>@Accessors</code> now 'cascades'; any options not set on a field-level <code>@Accessors</code> annotation will get inherited from an
 			<code>@Accessors</code> annotation on the class (and any options not set on those, from the enclosing class). Finally, anything set in <code>lombok.config</code>
-			will be used as default. (lombok v1.18.24)
+			will be used as default. (lombok v1.18.24_fix)
 		</p><p>
 			NEW FEATURE: <code>@Accessors(makeFinal = true)</code> will create <code>final</code> getters, setters, and with-ers. There's also
-			<code>lombok.config</code> key <code>lombok.accessors.makeFinal</code> for the same effect. (lombok v1.18.24)
+			<code>lombok.config</code> key <code>lombok.accessors.makeFinal</code> for the same effect. (lombok v1.18.24_fix)
 	</@f.history>
 	
 	<@f.experimental>

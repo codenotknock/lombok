@@ -1,5 +1,11 @@
 Lombok Changelog
 ----------------
+### v1.18.24_fix(2024.09.14)
+* @toString(filerNull=ture)
+- 新增功能: filerNull 默认为true
+    - true: toSting字符串会过滤值为null的字段
+    - false: 使用lombok原生的toString方法
+
 
 ### v1.18.24 (April 18th, 2022)
 
