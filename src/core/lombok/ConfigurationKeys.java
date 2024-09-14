@@ -306,7 +306,15 @@ public class ConfigurationKeys {
 	 * If {@code true}, require a {@code @ToString.Include} annotation on any fields/no-args methods you want to include in lombok's generated `@ToString` method. Otherwise, every (non-static, non-dollar-named) field is included by default  (default = false).
 	 */
 	public static final ConfigurationKey<Boolean> TO_STRING_ONLY_EXPLICITLY_INCLUDED = new ConfigurationKey<Boolean>("lombok.toString.onlyExplicitlyIncluded", "Include only fields/methods explicitly marked with @ToString.Include. Otherwise, include all non-static, non-dollar-named fields (default = false).") {};
-	
+
+	/**
+	 * lombok configuration: {@code lombok.toString.filterNull} = {@code true} | {@code false}.
+	 *
+	 * Whether to filter out fields with null values in the generated toString method (default = true).
+	 * false时是lombok原生的toString方法； true时生成的 toString 方法时自定义的
+	 */
+	public static final ConfigurationKey<Boolean> TO_STRING_FILTER_NULL = new ConfigurationKey<Boolean>("lombok.toString.filterNull", "Whether to filter out fields with null values in the generated toString method (default = true).") {};
+
 	// ----- Builder -----
 	
 	/**

@@ -89,9 +89,11 @@ public @interface ToString {
 	boolean onlyExplicitlyIncluded() default false;
 
 	/**
-	 * 是否过滤字段值为null的字符串，默认不过滤
+	 * 是否过滤字段值为null的字符串，默认过滤
+	 * false时是lombok原生的toString方法； true时生成的 toString 方法时自定义的
+	 * 注意： 不受includeFieldNames的影响；不支持枚举类
 	 */
-	boolean filterNull() default false;
+	boolean filterNull() default true;
 
 	/**
 	 * If present, do not include this field in the generated {@code toString}.

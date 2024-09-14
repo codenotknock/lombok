@@ -78,9 +78,12 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		FieldAccess fieldAccess = doNotUseGetters ? FieldAccess.PREFER_FIELD : FieldAccess.GETTER;
 		
 		boolean includeFieldNames = annotationNode.getAst().getBooleanAnnotationValue(annotation, "includeFieldNames", ConfigurationKeys.TO_STRING_INCLUDE_FIELD_NAMES);
-		// filterNull 默认值写死了，false 默认使用lombok原生的toString
-//		boolean filterNull = annotationNode.getAst().getBooleanAnnotationValue(anno, "filterNull", false);
-		generateToString(annotationNode.up(), annotationNode, members, includeFieldNames, callSuper, true, fieldAccess, true);
+
+		// 默认使用过滤null字段的 toString 方法
+		boolean filterNull = ann.filterNull();
+		if (!annotation.isExplicit("filterNull")) filterNull = true;
+
+		generateToString(annotationNode.up(), annotationNode, members, includeFieldNames, callSuper, true, fieldAccess, filterNull);
 	}
 	
 	public void generateToStringForType(JavacNode typeNode, JavacNode errorNode) {
@@ -92,15 +95,17 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		AnnotationValues<ToString> anno = AnnotationValues.of(ToString.class);
 		boolean includeFieldNames = typeNode.getAst().getBooleanAnnotationValue(anno, "includeFieldNames", ConfigurationKeys.TO_STRING_INCLUDE_FIELD_NAMES);
 		boolean onlyExplicitlyIncluded = typeNode.getAst().getBooleanAnnotationValue(anno, "onlyExplicitlyIncluded", ConfigurationKeys.TO_STRING_ONLY_EXPLICITLY_INCLUDED);
-		// filterNull 默认值写死了，false 默认使用lombok原生的toString
-//		boolean filterNull = typeNode.getAst().getBooleanAnnotationValue(anno, "filterNull", false);
 
+		// 默认使用过滤null字段的 toString 方法
+		ToString ann = anno.getInstance();
+		boolean filterNull = ann.filterNull();
+		if (!anno.isExplicit("filterNull")) filterNull = true;
 
 		Boolean doNotUseGettersConfiguration = typeNode.getAst().readConfiguration(ConfigurationKeys.TO_STRING_DO_NOT_USE_GETTERS);
 		FieldAccess access = doNotUseGettersConfiguration == null || !doNotUseGettersConfiguration ? FieldAccess.GETTER : FieldAccess.PREFER_FIELD;
 		
 		java.util.List<Included<JavacNode, ToString.Include>> members = InclusionExclusionUtils.handleToStringMarking(typeNode, onlyExplicitlyIncluded, null, null);
-		generateToString(typeNode, errorNode, members, includeFieldNames, null, false, access, true);
+		generateToString(typeNode, errorNode, members, includeFieldNames, null, false, access, filterNull);
 	}
 	
 	public void generateToString(JavacNode typeNode, JavacNode source, java.util.List<Included<JavacNode, ToString.Include>> members,
@@ -277,7 +282,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 	}
 
 	/**
-	 * 自定义 toString 方法， 生成的字符串会将字段值为null的值进行过滤
+	 * 自定义 toString 方法， 生成的字符串会将字段值为null的值进行过滤, 不受includeNames的影响
 	 * 前面需要添加判断： 不是枚举类型 且 fieldNull = true  逻辑中直接省去了对枚举类型的判断
 	 * @param typeNode
 	 * @param members
@@ -335,12 +340,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		// 前缀
 		if (members.isEmpty()) {
 			prefix = "{}";
-		}/* else if (includeNames) {
-			Included<JavacNode, ToString.Include> firstMember = members.iterator().next();
-			String name = firstMember.getInc() == null ? "" : firstMember.getInc().name();
-			if (name.isEmpty()) name = firstMember.getNode().getName();
-			prefix = "{" + name + "=";
-		}*/ else {
+		} else {
 			prefix = "{";
 		}
 		// sb.append("{");
