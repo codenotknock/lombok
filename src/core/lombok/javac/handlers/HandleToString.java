@@ -202,8 +202,8 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 					List.<JCExpression>nil()));
 			if (!prefix.isEmpty()) current = maker.Binary(CTC_PLUS, current, maker.Literal(prefix));
 		}
-		
-		
+
+
 		if (callSuper) {
 			JCMethodInvocation callToSuper = maker.Apply(List.<JCExpression>nil(),
 				maker.Select(maker.Ident(typeNode.toName("super")), typeNode.toName("toString")),
@@ -321,7 +321,6 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				null
 		);
 		JCVariableDecl sbDecl = maker.VarDef(maker.Modifiers(0), typeNode.toName("sb"), stringBuilderType, stringBuilderConstructor);
-		source.addWarning("生成 StringBuilder 实例.");
 
 		// 获取sb 变量和 append 方法
 		JCExpression sbIdent = maker.Ident(typeNode.toName("sb"));
@@ -343,27 +342,23 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 			prefix = "{";
 		}
 		// sb.append("{");
-		jcStatements.append(
-				maker.Exec(
-						maker.Apply(List.<JCExpression>nil(),
-								appendMethod,
-								List.<JCExpression>of((maker.Literal("{")))
-						))
-		);
-		source.addWarning("生成 字符串前缀 实例.");
+		JCExpression current = maker.Literal(prefix);
 
-		// sb.append(super.tostring());
+		// sb.append(”{“ + super.tostring());
 		if (callSuper) {
-			JCExpression superIdent = maker.Ident(typeNode.toName("super"));
-			JCExpression toStringMethod = maker.Select(superIdent, typeNode.toName("toString"));
-			jcStatements.append(
-					maker.Exec(
-							maker.Apply(List.<JCExpression>nil(),
-									appendMethod,
-									List.of(toStringMethod)
-							))
-			);
+			JCMethodInvocation callToSuper = maker.Apply(List.<JCExpression>nil(),
+					maker.Select(maker.Ident(typeNode.toName("super")), typeNode.toName("toString")),
+					List.<JCExpression>nil());
+			current = maker.Binary(CTC_PLUS, current, callToSuper);
+			current = maker.Binary(CTC_PLUS, current, maker.Literal(infix));
 		}
+		JCStatement appendStatement = maker.Exec(
+				maker.Apply(List.<JCExpression>nil(),
+						appendMethod,
+						List.of(current)
+				)
+		);
+		jcStatements.append(appendStatement);
 
 
 		for (Included<JavacNode, ToString.Include> member : members) {
