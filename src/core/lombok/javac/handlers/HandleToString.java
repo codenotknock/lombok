@@ -54,7 +54,6 @@ import com.sun.tools.javac.tree.JCTree.JCTypeParameter;
 import com.sun.tools.javac.tree.JCTree.JCVariableDecl;
 import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
-
 /**
  * Handles the {@code ToString} annotation for javac.
  */
@@ -399,67 +398,24 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				expr = maker.Apply(List.<JCExpression>nil(), tsMethod, List.<JCExpression>of(memberAccessor));
 			} else expr = memberAccessor;
 
-
-			// 定义局部字段
-			JCExpression fieldIdent = maker.Ident(typeNode.toName(memberNode.getName()));
-			JCVariableDecl fieldVarDecl = maker.VarDef(
-					maker.Modifiers(0),
-					typeNode.toName(memberNode.getName()),
-					genJavaLangTypeRef(typeNode, "Object"),
-					expr
-			);
-			jcStatements.append(fieldVarDecl);
-
-
+			// 如果不是基本数据类型则需要判断是否为null
 			if (!fieldIsPrimitive) {
-				// 添加字段值为 null 的判断 if(getField != null) sb.append(getField)
-	//			JCExpression nullCheck = maker.Binary(CTC_EQUAL, expr, maker.Literal(CTC_BOT, null));
-	//			JCExpression isNull = maker.Binary(CTC_EQUAL, maker.Select(maker.Ident(thisName), name), maker.Literal(CTC_BOT, null));
-	//			JCExpression valueOrNull = maker.Conditional(nullCheck, maker.Literal(""), expr);
-
-
-//				JCExpression cond = maker.Binary(CTC_NOT_EQUAL, thisDotField, maker.Literal(CTC_BOT, null));
+				// 定义局部字段
+				JCExpression fieldIdent = maker.Ident(typeNode.toName(memberNode.getName()));
+				JCVariableDecl fieldVarDecl = maker.VarDef(
+						maker.Modifiers(0),
+						typeNode.toName(memberNode.getName()),
+						genJavaLangTypeRef(typeNode, "Object"),
+						expr
+				);
+				jcStatements.append(fieldVarDecl);
 
 				JCExpression fieldNotNullCondition = maker.Binary(CTC_NOT_EQUAL, fieldIdent, maker.Literal(CTC_BOT, null));
-				JCStatement appendStatement = maker.Exec(
-						maker.Apply(List.<JCExpression>nil(),
-								appendMethod,
-								List.<JCExpression>of(maker.Literal(memberNode.getName() + "="))
-						)
-				);
-				JCStatement appendStatement1 =maker.Exec(
-						maker.Apply(List.<JCExpression>nil(),
-								appendMethod,
-								List.of(fieldIdent)
-						)
-				);
-
-				JCStatement appendStatement2 = maker.Exec(
-						maker.Apply(List.<JCExpression>nil(),
-								appendMethod,
-								List.<JCExpression>of(maker.Literal(infix))
-						)
-				);
-
-
-
-	//			source.addError("判断字段。。。.");
-	//			JCStatement clearKeyCall = maker.Exec(maker.Apply(jceBlank, thisDotKeyFieldDotClear, jceBlank));
-	//			JCStatement clearValueCall = maker.Exec(maker.Apply(jceBlank, thisDotValueFieldDotClear, jceBlank));
-	//			JCExpression cond = maker.Binary(CTC_NOT_EQUAL, thisDotKeyField, maker.Literal(CTC_BOT, null));
-	//			JCBlock clearCalls = maker.Block(0, List.of(clearKeyCall, clearValueCall));
-	//			JCStatement ifSetCallClear = maker.If(cond, clearCalls, null);
 				jcStatements.append(
-						maker.If(fieldNotNullCondition, maker.Block(0, List.of(appendStatement, appendStatement1, appendStatement2)), null)
+						maker.If(fieldNotNullCondition, maker.Block(0, appendStatements(maker, appendMethod, fieldIdent, infix, memberNode)), null)
 				);
 			} else {
-				jcStatements.append(
-						maker.Exec(
-								maker.Apply(List.<JCExpression>nil(),
-										appendMethod,
-										List.<JCExpression>of(maker.Literal(memberNode.getName() + "=" + expr + infix))
-						)
-				));
+				jcStatements.addAll(appendStatements(maker, appendMethod, expr, infix, memberNode));
 			}
 		}
 		// sb.append("{");
@@ -498,4 +454,39 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		}
 		return typeName;
 	}
+
+	/**
+	 * StringBuilder 的 append 操作
+	 * @param maker
+	 * @param methodNode
+	 * @return
+	 */
+	private static List<JCStatement> appendStatements(JavacTreeMaker maker, JCExpression appendMethod,
+													  JCExpression fieldIdent, String infix, JavacNode memberNode) {
+		JCStatement appendStatement1 = maker.Exec(
+				maker.Apply(List.<JCExpression>nil(),
+						appendMethod,
+						List.<JCExpression>of(maker.Literal(memberNode.getName() + "="))
+				)
+		);
+		JCStatement appendStatement2 =maker.Exec(
+				maker.Apply(List.<JCExpression>nil(),
+						appendMethod,
+						List.of(fieldIdent)
+				)
+		);
+
+		JCStatement appendStatement3 = maker.Exec(
+				maker.Apply(List.<JCExpression>nil(),
+						appendMethod,
+						List.<JCExpression>of(maker.Literal(infix))
+				)
+		);
+		ListBuffer<JCStatement> jcStatements = new ListBuffer<JCStatement>();
+		jcStatements.append(appendStatement1);
+		jcStatements.append(appendStatement2);
+		jcStatements.append(appendStatement3);
+		return jcStatements.toList();
+	}
+
 }
