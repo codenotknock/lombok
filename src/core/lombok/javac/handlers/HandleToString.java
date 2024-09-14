@@ -399,6 +399,18 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				expr = maker.Apply(List.<JCExpression>nil(), tsMethod, List.<JCExpression>of(memberAccessor));
 			} else expr = memberAccessor;
 
+
+			// 定义局部字段
+			JCExpression fieldIdent = maker.Ident(typeNode.toName(memberNode.getName()));
+			JCVariableDecl fieldVarDecl = maker.VarDef(
+					maker.Modifiers(0),
+					typeNode.toName(memberNode.getName()),
+					genJavaLangTypeRef(typeNode, "Object"),
+					expr
+			);
+			jcStatements.append(fieldVarDecl);
+
+
 			if (!fieldIsPrimitive) {
 				// 添加字段值为 null 的判断 if(getField != null) sb.append(getField)
 	//			JCExpression nullCheck = maker.Binary(CTC_EQUAL, expr, maker.Literal(CTC_BOT, null));
@@ -408,7 +420,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 
 //				JCExpression cond = maker.Binary(CTC_NOT_EQUAL, thisDotField, maker.Literal(CTC_BOT, null));
 
-				JCExpression fieldNotNullCondition = maker.Binary(CTC_NOT_EQUAL, expr, maker.Literal(CTC_BOT, null));
+				JCExpression fieldNotNullCondition = maker.Binary(CTC_NOT_EQUAL, fieldIdent, maker.Literal(CTC_BOT, null));
 				JCStatement appendStatement = maker.Exec(
 						maker.Apply(List.<JCExpression>nil(),
 								appendMethod,
@@ -418,7 +430,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				JCStatement appendStatement1 =maker.Exec(
 						maker.Apply(List.<JCExpression>nil(),
 								appendMethod,
-								List.of(expr)
+								List.of(fieldIdent)
 						)
 				);
 
