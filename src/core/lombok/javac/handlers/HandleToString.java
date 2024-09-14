@@ -317,6 +317,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				null
 		);
 		JCVariableDecl sbDecl = maker.VarDef(maker.Modifiers(0), typeNode.toName("sb"), stringBuilderType, stringBuilderConstructor);
+		source.addWarning("生成 StringBuilder 实例.");
 
 		// 获取sb 变量和 append 方法
 		JCExpression sbIdent = maker.Ident(typeNode.toName("sb"));
@@ -350,7 +351,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 								List.<JCExpression>of((maker.Literal("{")))
 						))
 		);
-
+		source.addWarning("生成 字符串前缀 实例.");
 
 		// sb.append(super.tostring());
 		if (callSuper) {
@@ -397,26 +398,56 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				expr = maker.Apply(List.<JCExpression>nil(), tsMethod, List.<JCExpression>of(memberAccessor));
 			} else expr = memberAccessor;
 
-			// 添加字段值为 null 的判断 if(getField != null) sb.append(getField)
-			JCExpression nullCheck = maker.Binary(CTC_EQUAL, expr, maker.Literal(null));
-//			JCExpression isNull = maker.Binary(CTC_EQUAL, maker.Select(maker.Ident(thisName), name), maker.Literal(CTC_BOT, null));
-			JCExpression valueOrNull = maker.Conditional(nullCheck, maker.Literal(""), expr);
-			JCExpression fieldNotNullCondition = maker.Binary(CTC_NEG, expr, maker.Literal(null));
-			JCStatement appendStatement = maker.Exec(
-					maker.Apply(List.<JCExpression>nil(),
-							appendMethod,
-							List.<JCExpression>of(maker.Literal(memberNode.getName() + "=" + expr + infix))
-					)
-			);
-//			JCStatement clearKeyCall = maker.Exec(maker.Apply(jceBlank, thisDotKeyFieldDotClear, jceBlank));
-//			JCStatement clearValueCall = maker.Exec(maker.Apply(jceBlank, thisDotValueFieldDotClear, jceBlank));
-//			JCExpression cond = maker.Binary(CTC_NOT_EQUAL, thisDotKeyField, maker.Literal(CTC_BOT, null));
-//			JCBlock clearCalls = maker.Block(0, List.of(clearKeyCall, clearValueCall));
-//			JCStatement ifSetCallClear = maker.If(cond, clearCalls, null);
-			jcStatements.append(
-					maker.If(fieldNotNullCondition, maker.Block(0, List.of(appendStatement)), null)
-			);
+			if (!fieldIsPrimitive) {
+				// 添加字段值为 null 的判断 if(getField != null) sb.append(getField)
+	//			JCExpression nullCheck = maker.Binary(CTC_EQUAL, expr, maker.Literal(CTC_BOT, null));
+	//			JCExpression isNull = maker.Binary(CTC_EQUAL, maker.Select(maker.Ident(thisName), name), maker.Literal(CTC_BOT, null));
+	//			JCExpression valueOrNull = maker.Conditional(nullCheck, maker.Literal(""), expr);
 
+
+//				JCExpression cond = maker.Binary(CTC_NOT_EQUAL, thisDotField, maker.Literal(CTC_BOT, null));
+
+				JCExpression fieldNotNullCondition = maker.Binary(CTC_NOT_EQUAL, expr, maker.Literal(CTC_BOT, null));
+				JCStatement appendStatement = maker.Exec(
+						maker.Apply(List.<JCExpression>nil(),
+								appendMethod,
+								List.<JCExpression>of(maker.Literal(memberNode.getName() + "="))
+						)
+				);
+				JCStatement appendStatement1 =maker.Exec(
+						maker.Apply(List.<JCExpression>nil(),
+								appendMethod,
+								List.of(expr)
+						)
+				);
+
+				JCStatement appendStatement2 = maker.Exec(
+						maker.Apply(List.<JCExpression>nil(),
+								appendMethod,
+								List.<JCExpression>of(maker.Literal(infix))
+						)
+				);
+
+
+
+	//			source.addError("判断字段。。。.");
+	//			JCStatement clearKeyCall = maker.Exec(maker.Apply(jceBlank, thisDotKeyFieldDotClear, jceBlank));
+	//			JCStatement clearValueCall = maker.Exec(maker.Apply(jceBlank, thisDotValueFieldDotClear, jceBlank));
+	//			JCExpression cond = maker.Binary(CTC_NOT_EQUAL, thisDotKeyField, maker.Literal(CTC_BOT, null));
+	//			JCBlock clearCalls = maker.Block(0, List.of(clearKeyCall, clearValueCall));
+	//			JCStatement ifSetCallClear = maker.If(cond, clearCalls, null);
+				jcStatements.append(
+						maker.If(fieldNotNullCondition, maker.Block(0, List.of(appendStatement, appendStatement1, appendStatement2)), null)
+				);
+			} else {
+				jcStatements.append(
+						maker.Exec(
+								maker.Apply(List.<JCExpression>nil(),
+										appendMethod,
+										List.<JCExpression>of(maker.Literal(memberNode.getName() + "=" + expr + infix))
+						)
+				));
+			}
 		}
 		// sb.append("{");
 		jcStatements.append(
@@ -431,7 +462,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		jcStatements.append(
 				maker.Return(
 						maker.Apply(List.<JCExpression>nil(),
-								appendMethod,
+								maker.Select(maker.Ident(typeNode.toName("sb")), typeNode.toName("toString")),
 								List.<JCExpression>nil()))
 		);
 
