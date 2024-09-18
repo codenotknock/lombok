@@ -340,6 +340,9 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		ListBuffer<JCStatement> jcStatements = new ListBuffer<JCStatement>();
 		jcStatements.append(sbDecl);
 
+		// 创建对 String.valueOf(Object) 的引用
+//		JCExpression stringValueOfMethod = chainDots(typeNode, "java", "lang", "String", "valueOf");
+
 
 		String infix = ", ";
 		String suffix = "}";
@@ -406,19 +409,28 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 			if (!fieldIsPrimitive) {
 				// 定义局部字段
 				JCExpression fieldIdent = maker.Ident(typeNode.toName(memberNode.getName()));
+
 				JCVariableDecl fieldVarDecl = maker.VarDef(
 						maker.Modifiers(0),
 						typeNode.toName(memberNode.getName()),
 						genJavaLangTypeRef(typeNode, "Object"),
 						expr
 				);
+
 				jcStatements.append(fieldVarDecl);
 
 				JCExpression fieldNotNullCondition = maker.Binary(CTC_NOT_EQUAL, fieldIdent, maker.Literal(CTC_BOT, null));
+				// sb.append(obj.toString())
+				JCExpression toStringMethod  = maker.Select(fieldIdent, typeNode.toName("toString"));
+				fieldIdent = maker.Apply(List.<JCExpression>nil(), toStringMethod, List.<JCExpression>nil());
 				jcStatements.append(
-						maker.If(fieldNotNullCondition, maker.Block(0, appendStatements(maker, appendMethod, fieldIdent, infix, memberNode)), null)
+						maker.If(fieldNotNullCondition, maker.Block(0, appendStatements(maker, appendMethod,
+								fieldIdent, infix, memberNode)), null)
 				);
 			} else {
+				// sb.append(String.valueOf(this.getIntValue()))
+				JCExpression stringValueOfMethod = chainDots(typeNode, "java", "lang", "String", "valueOf");
+				expr = maker.Apply(List.<JCExpression>nil(), stringValueOfMethod, List.<JCExpression>of(expr));
 				jcStatements.addAll(appendStatements(maker, appendMethod, expr, infix, memberNode));
 			}
 		}
