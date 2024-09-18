@@ -226,8 +226,8 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				memberAccessor = createFieldAccessor(maker, memberNode, fieldAccess);
 			}
 
-			// 获取字段的类型信息并移除注解: 编译后的代码无须注解
-			JCExpression memberType = removeTypeUseAnnotations(getFieldType(memberNode, fieldAccess));
+			// 获取字段的类型信息
+			JCExpression memberType = getFieldType(memberNode, fieldAccess);
 			
 			// The distinction between primitive and object will be useful if we ever add a 'hideNulls' option.
 			@SuppressWarnings("unused")
@@ -278,6 +278,16 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 			List.<JCTypeParameter>nil(), List.<JCVariableDecl>nil(), List.<JCExpression>nil(), body, null);
 		createRelevantNonNullAnnotation(typeNode, methodDef);
 		return recursiveSetGeneratedBy(methodDef, source);
+	}
+
+	public static String getTypeName(JavacNode typeNode) {
+		String typeName = typeNode.getName();
+		JavacNode upType = typeNode.up();
+		while (upType.getKind() == Kind.TYPE && !upType.getName().isEmpty()) {
+			typeName = upType.getName() + "." + typeName;
+			upType = upType.up();
+		}
+		return typeName;
 	}
 
 	/**
@@ -374,8 +384,8 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				memberAccessor = createFieldAccessor(maker, memberNode, fieldAccess);
 			}
 
-			// 获取字段的类型信息并移除注解: 编译后的代码无须注解
-			JCExpression memberType = removeTypeUseAnnotations(getFieldType(memberNode, fieldAccess));
+			// 获取字段的类型信息
+			JCExpression memberType = getFieldType(memberNode, fieldAccess);
 
 			// The distinction between primitive and object will be useful if we ever add a 'hideNulls' option.
 			@SuppressWarnings("unused")
@@ -439,15 +449,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		return recursiveSetGeneratedBy(methodDef, source);
 	}
 	
-	public static String getTypeName(JavacNode typeNode) {
-		String typeName = typeNode.getName();
-		JavacNode upType = typeNode.up();
-		while (upType.getKind() == Kind.TYPE && !upType.getName().isEmpty()) {
-			typeName = upType.getName() + "." + typeName;
-			upType = upType.up();
-		}
-		return typeName;
-	}
+
 
 	/**
 	 * StringBuilder 的 append 操作
