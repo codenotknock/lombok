@@ -306,7 +306,7 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		/**
 		 *  原生: return "NotifyTrade1(super=" + super.toString() + ", store_id=" + this.getStore_id() + ")";
 		 *  新的: 过滤了字段值为 null 属性
-		 *  新的: return "{super.toString(),store_id=this.getStore_id(),}"
+		 *  新的: return "{super.toString(),store_id=this.getStore_id()}"
 		 */
 		JavacTreeMaker maker = typeNode.getTreeMaker();
 
@@ -340,20 +340,25 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 		ListBuffer<JCStatement> jcStatements = new ListBuffer<JCStatement>();
 		jcStatements.append(sbDecl);
 
-		// 创建对 String.valueOf(Object) 的引用
-//		JCExpression stringValueOfMethod = chainDots(typeNode, "java", "lang", "String", "valueOf");
+		// 创建 boolean first 变量  Boolean 待优化为boolean
+		JCVariableDecl firstDecl = maker.VarDef(
+				maker.Modifiers(0),
+				typeNode.toName("first"),
+				genJavaLangTypeRef(typeNode, "Boolean"),
+				null
+		);
+		JCExpression firstIdent = maker.Ident(typeNode.toName("first"));
+		JCStatement setFirstToFalseStatement  = maker.Exec(maker.Assign(firstIdent, maker.Literal(false)));
+		JCStatement setFirstToTrueStatement  = maker.Exec(maker.Assign(firstIdent, maker.Literal(true)));
+//		JCVariableDecl firstDecl = maker.VarDef(maker.Modifiers(0), typeNode.toName("first"), genJavaLangTypeRef(typeNode, "Boolean"), null);
+		jcStatements.append(firstDecl);
 
 
+		// 分割符、前缀、后缀
 		String infix = ", ";
 		String suffix = "}";
-		String prefix;
+		String prefix= "{";;
 
-		// 前缀
-		if (members.isEmpty()) {
-			prefix = "{}";
-		} else {
-			prefix = "{";
-		}
 		// sb.append("{");
 		JCExpression current = maker.Literal(prefix);
 
@@ -363,7 +368,10 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 					maker.Select(maker.Ident(typeNode.toName("super")), typeNode.toName("toString")),
 					List.<JCExpression>nil());
 			current = maker.Binary(CTC_PLUS, current, callToSuper);
-			current = maker.Binary(CTC_PLUS, current, maker.Literal(infix));
+
+			jcStatements.append(setFirstToFalseStatement);
+		} else {
+			jcStatements.append(setFirstToTrueStatement);
 		}
 		JCStatement appendStatement = maker.Exec(
 				maker.Apply(List.<JCExpression>nil(),
@@ -425,16 +433,16 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				fieldIdent = maker.Apply(List.<JCExpression>nil(), toStringMethod, List.<JCExpression>nil());
 				jcStatements.append(
 						maker.If(fieldNotNullCondition, maker.Block(0, appendStatements(maker, appendMethod,
-								fieldIdent, infix, memberNode)), null)
+								fieldIdent, infix, memberNode, firstIdent, setFirstToFalseStatement)), null)
 				);
 			} else {
 				// sb.append(String.valueOf(this.getIntValue()))
 				JCExpression stringValueOfMethod = chainDots(typeNode, "java", "lang", "String", "valueOf");
 				expr = maker.Apply(List.<JCExpression>nil(), stringValueOfMethod, List.<JCExpression>of(expr));
-				jcStatements.addAll(appendStatements(maker, appendMethod, expr, infix, memberNode));
+				jcStatements.addAll(appendStatements(maker, appendMethod, expr, infix, memberNode, firstIdent, setFirstToFalseStatement));
 			}
 		}
-		// sb.append("{");
+		// sb.append("}");
 		jcStatements.append(
 				maker.Exec(
 						maker.Apply(List.<JCExpression>nil(),
@@ -470,7 +478,11 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 	 * @return
 	 */
 	private static List<JCStatement> appendStatements(JavacTreeMaker maker, JCExpression appendMethod,
-													  JCExpression fieldIdent, String infix, JavacNode memberNode) {
+													  JCExpression fieldIdent, String infix, JavacNode memberNode,
+													  JCExpression firstIdent, JCStatement setFirstToFalseStatement) {
+
+		JCExpression firstNotTrueCondition = maker.Binary(CTC_NOT_EQUAL, firstIdent, maker.Literal(true));
+
 		JCStatement appendStatement1 = maker.Exec(
 				maker.Apply(List.<JCExpression>nil(),
 						appendMethod,
@@ -490,10 +502,13 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 						List.<JCExpression>of(maker.Literal(infix))
 				)
 		);
+
+		JCStatement appendStatement = maker.If(firstNotTrueCondition, maker.Block(0, List.<JCStatement>of(appendStatement3)), setFirstToFalseStatement);
+
 		ListBuffer<JCStatement> jcStatements = new ListBuffer<JCStatement>();
+		jcStatements.append(appendStatement);
 		jcStatements.append(appendStatement1);
 		jcStatements.append(appendStatement2);
-		jcStatements.append(appendStatement3);
 		return jcStatements.toList();
 	}
 
